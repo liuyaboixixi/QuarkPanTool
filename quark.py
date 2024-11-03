@@ -15,17 +15,25 @@ from typing import List, Dict, Union, Tuple, Any
 
 
 class QuarkPanFileManager:
-    def __init__(self, headless: bool = False, slow_mo: int = 0) -> None:
+
+    def __init__(self,
+                 headless: bool = False,
+                 slow_mo: int = 0,
+                 folder_id: str = '0',
+                 user: str = '用户A',
+                 pdir_id: str = '0',
+                 dir_name: str = '根目录',
+                 cookies: str = '',
+                 user_agent: str = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Core/1.94.225.400 QQBrowser/12.2.5544.400') -> None:
         self.headless: bool = headless
         self.slow_mo: int = slow_mo
-        self.folder_id: Union[str, None] = None
-        self.user: Union[str, None] = '用户A'
-        self.pdir_id: Union[str, None] = '0'
-        self.dir_name: Union[str, None] = '根目录'
-        self.cookies: str = self.get_cookies()
+        self.folder_id: Union[str, None] = folder_id  # 默认 folder_id 为 '0'
+        self.user: str = user  # 用户名
+        self.pdir_id: str = pdir_id  # 父目录 ID
+        self.dir_name: str = dir_name  # 目录名称
+        self.cookies: str = cookies if cookies else self.get_cookies()  # 如果没有提供 cookies，则调用方法获取
         self.headers: Dict[str, str] = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko)'
-                          ' Chrome/94.0.4606.71 Safari/537.36 Core/1.94.225.400 QQBrowser/12.2.5544.400',
+            'user-agent': user_agent,
             'origin': 'https://pan.quark.cn',
             'referer': 'https://pan.quark.cn/',
             'accept-language': 'zh-CN,zh;q=0.9',
@@ -68,7 +76,7 @@ class QuarkPanFileManager:
             return stoken
 
     async def get_detail(self, pwd_id: str, stoken: str, pdir_fid: str = '0') -> Tuple[
-                str, List[Dict[str, Union[int, str]]]]:
+        str, List[Dict[str, Union[int, str]]]]:
         api = f"https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail"
         page = 1
         file_list: List[Dict[str, Union[int, str]]] = []
@@ -197,14 +205,22 @@ class QuarkPanFileManager:
             else:
                 custom_print(f"错误信息：{json_data['message']}", error_msg=True)
 
+    # 异步执行给定的文件或文件夹的转存或下载操作
     async def run(self, surl: str, folder_id: Union[str, None] = None, download: bool = False) -> None:
+        # 设置保存文件或文件夹的目录ID
         self.folder_id = folder_id
+        # 打印文件分享链接
         custom_print(f'文件分享链接：{surl}')
+        # 从分享链接中获取密码ID
         pwd_id = self.get_pwd_id(surl)
+        # 根据密码ID获取分享令牌
         stoken = await self.get_stoken(pwd_id)
+        # 如果获取的分享令牌为空，则直接返回
         if not stoken:
             return
+        # 获取分享详情，包括是否为分享者本人和数据列表
         is_owner, data_list = await self.get_detail(pwd_id, stoken)
+        # 初始化文件和文件夹的计数器及列表
         files_count = 0
         folders_count = 0
         files_list: List[str] = []
@@ -212,9 +228,11 @@ class QuarkPanFileManager:
         files_id_list = []
         file_fid_list = []
 
+        # 如果数据列表不为空，则进行遍历处理
         if data_list:
             total_files_count = len(data_list)
             for data in data_list:
+                # 判断当前项是否为目录，是则增加文件夹计数并添加到文件夹列表，否则增加文件计数并添加到文件列表
                 if data['dir']:
                     folders_count += 1
                     folders_list.append(data["file_name"])
@@ -223,22 +241,29 @@ class QuarkPanFileManager:
                     files_list.append(data["file_name"])
                     files_id_list.append((data["fid"], data["file_name"]))
 
+            # 打印转存总数、文件数、文件夹数以及支持嵌套的信息
             custom_print(f'转存总数：{total_files_count}，文件数：{files_count}，文件夹数：{folders_count} | 支持嵌套')
+            # 打印文件和文件夹的转存列表
             custom_print(f'文件转存列表：{files_list}')
             custom_print(f'文件夹转存列表：{folders_list}')
 
+            # 提取所有项目的fid和share_fid_token，用于后续操作
             fid_list = [i["fid"] for i in data_list]
             share_fid_token_list = [i["share_fid_token"] for i in data_list]
 
+            # 如果保存目录ID不合法，则打印提示信息并返回
             if not self.folder_id:
                 custom_print('保存目录ID不合法，请重新获取，如果无法获取，请输入0作为文件夹ID')
                 return
 
+            # 根据是否需要下载进行不同的操作
             if download:
+                # 如果不是分享者本人，则打印提示信息并返回
                 if is_owner == 0:
                     custom_print(f'下载文件必须是网盘内文件，请先将文件转存至网盘中')
                     return
 
+                # 对于每个数据项，如果是目录，则递归下载其中的文件
                 for i in data_list:
                     if i['dir']:
                         data_list2 = [i]
@@ -260,15 +285,18 @@ class QuarkPanFileManager:
                             if not data_list2 or not_dir:
                                 break
 
+                # 如果有文件需要下载，则执行下载操作
                 if len(files_id_list) > 0 or len(file_fid_list) > 0:
                     fid_list = [i[0] for i in files_id_list]
                     file_fid_list.extend(fid_list)
                     await self.quark_file_download(file_fid_list, folder='.')
 
             else:
+                # 如果是分享者本人，则打印提示信息并返回
                 if is_owner == 1:
                     custom_print(f'网盘中已经存在该文件，无需再次转存')
                     return
+                # 获取分享保存任务ID，并提交任务
                 task_id = await self.get_share_save_task_id(pwd_id, stoken, fid_list, share_fid_token_list,
                                                             to_pdir_fid=self.folder_id)
                 await self.submit_task(task_id)
@@ -347,7 +375,7 @@ class QuarkPanFileManager:
                 await self.download_file(download_url, save_path, headers=self.headers)
 
     async def submit_task(self, task_id: str, retry: int = 50) -> Union[
-                bool, Dict[str, Union[str, Dict[str, Union[int, str]]]]]:
+        bool, Dict[str, Union[str, Dict[str, Union[int, str]]]]]:
 
         for i in range(retry):
             # 随机暂停100-50毫秒
@@ -401,41 +429,66 @@ class QuarkPanFileManager:
         return _user, _pdir_id, _dir_name
 
     async def load_folder_id(self, renew=False) -> Union[tuple, None]:
+        """
+        加载或更新用户网盘保存目录的ID和名称。
 
+        如果renew参数为True，则引导用户输入新的保存目录ID，否则使用当前配置。
+        该函数还会更新配置文件以反映任何更改，并返回当前的保存目录ID和名称。
+
+        参数:
+        renew (bool): 是否更新保存目录的标志，默认为False。
+
+        返回:
+        Union[tuple, None]: 返回保存目录的ID和名称组成的元组，如果操作失败则返回None。
+        """
+
+        # 获取用户信息
         self.user = await self.get_user_info()
+        # 初始化或更新配置
         self.user, self.pdir_id, self.dir_name = self.init_config(self.user, self.pdir_id, self.dir_name)
+
         if not renew:
+            # 打印当前用户和保存目录信息
             custom_print(f'用户名：{self.user}')
             custom_print(f'你当前选择的网盘保存目录: {self.dir_name} 文件夹')
 
         if renew:
+            # 提示用户输入新的保存位置文件夹ID
             pdir_id = input(f'[{get_datetime()}] 请输入保存位置的文件夹ID(可为空): ')
+
             if pdir_id == '0':
+                # 如果输入为0，则将保存目录设为根目录
                 self.dir_name = '根目录'
                 new_config = {'user': self.user, 'pdir_id': self.pdir_id, 'dir_name': self.dir_name}
                 save_config(f'{CONFIG_DIR}/config.json', content=json.dumps(new_config, ensure_ascii=False))
 
             elif len(pdir_id) < 32:
+                # 如果输入的ID长度不符合要求，则显示错误信息并重新获取配置
                 file_list_data = await self.get_sorted_file_list()
                 fd_list = file_list_data['data']['list']
                 fd_list = [{i['fid']: i['file_name']} for i in fd_list if i.get('dir')]
                 if fd_list:
+                    # 显示可选的文件夹列表
                     table = PrettyTable(['序号', '文件夹ID', '文件夹名称'])
                     for idx, item in enumerate(fd_list, 1):
                         key, value = next(iter(item.items()))
                         table.add_row([idx, key, value])
                     print(table)
                     num = input(f'[{get_datetime()}] 请选择你要保存的位置（输入对应序号）: ')
+
                     if not num or int(num) > len(fd_list):
+                        # 如果输入的序号无效，则打印错误信息并保持当前配置
                         custom_print('输入序号不存在，保存目录切换失败', error_msg=True)
                         json_data = read_config(f'{CONFIG_DIR}/config.json', 'json')
                         return json_data['pdir_id'], json_data['dir_name']
 
+                    # 根据用户选择更新保存目录
                     item = fd_list[int(num) - 1]
                     self.pdir_id, self.dir_name = next(iter(item.items()))
                     new_config = {'user': self.user, 'pdir_id': self.pdir_id, 'dir_name': self.dir_name}
                     save_config(f'{CONFIG_DIR}/config.json', content=json.dumps(new_config, ensure_ascii=False))
 
+        # 返回当前的保存目录ID和名称
         return self.pdir_id, self.dir_name
 
     async def get_share_task_id(self, fid: str, file_name: str, url_type: int = 1, expired_type: int = 2,
@@ -629,6 +682,70 @@ class QuarkPanFileManager:
                     error_data.append(i1)
         error_content = '\n'.join(error_data)
         save_config(path='./share/retry.txt', content=error_content, mode='w')
+
+    async def http_share_run(self, share_url: str, folder_id: Union[str, None] = None, url_type: int = 1,
+                             expired_type: int = 2, password: str = '') -> List[dict]:
+        share_results = []  # 用于存储分享结果
+        try:
+            self.folder_id = folder_id
+            custom_print(f'文件夹网页地址：{share_url}')
+            pwd_id = share_url.rsplit('/', maxsplit=1)[1].split('-')[0]
+
+            first_page = 1
+            n = 0
+            while True:
+                json_data = await self.get_sorted_file_list(pwd_id, page=str(first_page), size='50', fetch_total='1',
+                                                            sort='file_type:asc,file_name:asc')
+                for i1 in json_data['data']['list']:
+                    if i1['dir']:
+                        first_dir = i1['file_name']
+                        second_page = 1
+                        while True:
+                            json_data2 = await self.get_sorted_file_list(i1['fid'], page=str(second_page),
+                                                                         size='50', fetch_total='1',
+                                                                         sort='file_type:asc,file_name:asc')
+                            for i2 in json_data2['data']['list']:
+                                if i2['dir']:
+                                    n += 1
+                                    share_result = {'folder': f"{first_dir}/{i2['file_name']}", 'status': '',
+                                                    'message': ''}
+                                    for i in range(3):
+                                        try:
+                                            custom_print(f'{n}.开始分享 {share_result["folder"]} 文件夹')
+                                            await asyncio.sleep(random.uniform(0.5, 2))  # 随机延迟
+                                            fid = i2['fid']
+                                            task_id = await self.get_share_task_id(fid, i2['file_name'],
+                                                                                   url_type=url_type,
+                                                                                   expired_type=expired_type,
+                                                                                   password=password)
+                                            share_id = await self.get_share_id(task_id)
+                                            share_url = await self.submit_share(share_id)
+                                            share_result['status'] = 'success'
+                                            share_result['message'] = share_url
+                                            custom_print(
+                                                f'{n}.分享成功 {share_result["folder"]} 文件夹，链接：{share_url}')
+                                            break
+                                        except Exception as e:
+                                            share_result['status'] = 'error'
+                                            share_result['message'] = str(e)
+
+                                    share_results.append(share_result)  # 添加分享结果到列表
+
+                            if json_data2['metadata']['_page'] * json_data2['metadata']['_size'] >= \
+                                    json_data2['metadata']['_total']:
+                                break
+                            second_page += 1
+
+                if json_data['metadata']['_page'] * json_data['metadata']['_size'] >= json_data['metadata']['_total']:
+                    break
+                first_page += 1
+
+            custom_print(f"总共分享了 {n} 个文件夹")
+            return share_results  # 返回所有分享结果
+
+        except Exception as e:
+            custom_print(f'分享失败：{e}')
+            return [{'folder': '未知', 'status': 'error', 'message': str(e)}]
 
 
 def load_url_file(fpath: str) -> List[str]:
