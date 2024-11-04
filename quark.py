@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import logging
 import re
 import sys
 import httpx
+from openpyxl.styles.builtins import title
 from prettytable import PrettyTable
 from tqdm import tqdm
 from quark_login import QuarkLogin, CONFIG_DIR
@@ -427,7 +429,14 @@ class QuarkPanFileManager:
             new_config = {'user': self.user, 'pdir_id': self.pdir_id, 'dir_name': self.dir_name}
             save_config(f'{CONFIG_DIR}/config.json', content=json.dumps(new_config, ensure_ascii=False))
         return _user, _pdir_id, _dir_name
-
+    def reset_cookies(self, cookies: str = '', folder_id: str = '0', pdir_id: str = '0') -> None:
+        if cookies:
+            self.cookies = cookies
+            self.headers['cookie'] = self.cookies
+        if folder_id:
+            self.folder_id = folder_id
+        if pdir_id:
+            self.pdir_id = pdir_id
     async def load_folder_id(self, renew=False) -> Union[tuple, None]:
         """
         加载或更新用户网盘保存目录的ID和名称。
@@ -535,6 +544,7 @@ class QuarkPanFileManager:
             response = await client.get('https://drive-pc.quark.cn/1/clouddrive/task', params=params,
                                         headers=self.headers, timeout=timeout)
             json_data = response.json()
+
             return json_data['data']['share_id']
 
     async def submit_share(self, share_id: str) -> None:
@@ -683,69 +693,40 @@ class QuarkPanFileManager:
         error_content = '\n'.join(error_data)
         save_config(path='./share/retry.txt', content=error_content, mode='w')
 
-    async def http_share_run(self, share_url: str, folder_id: Union[str, None] = None, url_type: int = 1,
+    async def http_share_run(self, share_url_dir: str, folder_id: Union[str, None] = None, url_type: int = 1,
                              expired_type: int = 2, password: str = '') -> List[dict]:
         share_results = []  # 用于存储分享结果
         try:
             self.folder_id = folder_id
-            custom_print(f'文件夹网页地址：{share_url}')
-            pwd_id = share_url.rsplit('/', maxsplit=1)[1].split('-')[0]
+            custom_print(f'文件夹网页地址：{share_url_dir}')
+            pwd_id = share_url_dir.rsplit('/', maxsplit=1)[1]
+            fid_id = pwd_id.split('-')[0]
+            title = '-'.join(pwd_id.split('-')[1:])  # 确保 title 包含所有部分
 
-            first_page = 1
-            n = 0
-            while True:
-                json_data = await self.get_sorted_file_list(pwd_id, page=str(first_page), size='50', fetch_total='1',
-                                                            sort='file_type:asc,file_name:asc')
-                for i1 in json_data['data']['list']:
-                    if i1['dir']:
-                        first_dir = i1['file_name']
-                        second_page = 1
-                        while True:
-                            json_data2 = await self.get_sorted_file_list(i1['fid'], page=str(second_page),
-                                                                         size='50', fetch_total='1',
-                                                                         sort='file_type:asc,file_name:asc')
-                            for i2 in json_data2['data']['list']:
-                                if i2['dir']:
-                                    n += 1
-                                    share_result = {'folder': f"{first_dir}/{i2['file_name']}", 'status': '',
-                                                    'message': ''}
-                                    for i in range(3):
-                                        try:
-                                            custom_print(f'{n}.开始分享 {share_result["folder"]} 文件夹')
-                                            await asyncio.sleep(random.uniform(0.5, 2))  # 随机延迟
-                                            fid = i2['fid']
-                                            task_id = await self.get_share_task_id(fid, i2['file_name'],
-                                                                                   url_type=url_type,
-                                                                                   expired_type=expired_type,
-                                                                                   password=password)
-                                            share_id = await self.get_share_id(task_id)
-                                            share_url = await self.submit_share(share_id)
-                                            share_result['status'] = 'success'
-                                            share_result['message'] = share_url
-                                            custom_print(
-                                                f'{n}.分享成功 {share_result["folder"]} 文件夹，链接：{share_url}')
-                                            break
-                                        except Exception as e:
-                                            share_result['status'] = 'error'
-                                            share_result['message'] = str(e)
+            task_id = await self.get_share_task_id(fid_id, title, url_type=url_type,
+                                                   expired_type=expired_type,
+                                                   password=password)
+            random_time = random.choice([0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+            await asyncio.sleep(random_time)
+            share_id = await self.get_share_id(task_id)
+            share_url = await self.submit_share(share_id)
 
-                                    share_results.append(share_result)  # 添加分享结果到列表
+            custom_print(f'源文件夹:{share_url_dir}, 生成的分享链接:{share_url}')
+            share_results.append({'folder': share_url_dir, 'status': 'success', 'message': share_url})
 
-                            if json_data2['metadata']['_page'] * json_data2['metadata']['_size'] >= \
-                                    json_data2['metadata']['_total']:
-                                break
-                            second_page += 1
-
-                if json_data['metadata']['_page'] * json_data['metadata']['_size'] >= json_data['metadata']['_total']:
-                    break
-                first_page += 1
-
-            custom_print(f"总共分享了 {n} 个文件夹")
-            return share_results  # 返回所有分享结果
-
+        except ValueError as ve:
+            logging.error(f'解析错误：{ve}')
+            share_results.append({'data': share_url_dir, 'status': 'error', 'message': str(ve)})
+        except ConnectionError as ce:
+            logging.error(f'网络连接错误：{ce}')
+            share_results.append({'data': share_url_dir, 'status': 'error', 'message': str(ce)})
         except Exception as e:
-            custom_print(f'分享失败：{e}')
-            return [{'folder': '未知', 'status': 'error', 'message': str(e)}]
+            logging.error(f'未知错误：{e}')
+            share_results.append({'data': share_url_dir, 'status': 'error', 'message': str(e)})
+
+        return share_results  # 返回所有分享结果
+
+
 
 
 def load_url_file(fpath: str) -> List[str]:

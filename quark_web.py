@@ -101,6 +101,9 @@ async def share_file():
             url:
               type: string
               description: 需要分享的文件夹网页端页面地址（仅在 share_option 为 1 时必填）
+            title:
+              type: string
+              description: 标题
             expired_type:
               type: integer
               description: 分享时长选项（1 1天, 2 7天, 3 30天, 4 永久）
@@ -112,45 +115,81 @@ async def share_file():
               description: 分享提取码（可选）
           example:
             share_option: "1"
+            title: "小巷人家"
             url: "https://pan.quark.cn/list#/list/all/3b99735be39346b8916458e2fa510390-%E8%87%AA%E5%8A%A8%E5%AE%9A%E6%97%B6%E5%88%86%E4%BA%AB/4ff3127fd891421e9597ab556f432175-X%20%E5%B0%8F.%E5%B7%B7%E4%BA%BAJ%E5%AE%B6%202024"
             expired_type: 4
             is_private: "1"
             passcode: ""
     responses:
       200:
-        description: 分享成功
+        description: Successful share link creation.
         schema:
           type: object
           properties:
-            share_links:
+            code:
+              type: integer
+              example: 200
+            message:
+              type: string
+              example: "ok"
+            data:
               type: array
               items:
-                type: string
+                type: object
+                properties:
+                  title:
+                    type: string
+                    example: "X 小.巷人J家 2024"
+                  share_url:
+                    type: string
+                    example: "https://pan.quark.cn/list#/list/all/3b99735be39346b8916458e2fa510390"
       400:
-        description: 请求参数错误
+        description: Invalid input parameters.
         schema:
           type: object
           properties:
-            error:
+            code:
+              type: integer
+              example: 400
+            message:
               type: string
-              description: 错误信息
+              example: "无效的分享选项！"
+            data:
+              type: array
+              items: {}
+      500:
+        description: Internal server error.
+        schema:
+          type: object
+          properties:
+            code:
+              type: integer
+              example: 500
+            message:
+              type: string
+              example: "Internal server error"
+            data:
+              type: array
+              items: {}
     """
-
     data = request.json
     share_option = data.get('share_option')
+    title = data.get('title')
 
     # 验证分享选项
     if share_option not in ['1', '2']:
-        return jsonify({'error': '无效的分享选项！'}), 400
+        return jsonify({'code': 400, 'message': '无效的分享选项！', 'data': []}), 400
+
+    if not title:  # 修改为检查标题是否存在
+        return jsonify({'code': 400, 'message': '无效的标题！', 'data': []}), 400
 
     url = data.get('url')
     if share_option == '1' and (not url or len(url.strip()) < 20):
-        return jsonify({'error': '无效的分享链接！'}), 400
+        return jsonify({'code': 400, 'message': '无效的分享链接！', 'data': []}), 400
 
     # 读取重试链接
     expired_option = {"1": 2, "2": 3, "3": 4, "4": 1}
-    select_option = str(data.get('expired_type', 4))  # 默认为 4
-    _expired_type = expired_option.get(select_option, 4)
+    _expired_type = expired_option.get(str(data.get('expired_type', 4)), 4)  # 默认为 4
 
     is_private = data.get('is_private', '1')  # 默认为不加密
     url_encrypt = 2 if is_private == '2' else 1
@@ -158,12 +197,102 @@ async def share_file():
 
     try:
         share_links = await quark_file_manager.http_share_run(
-            url.strip(), folder_id=to_dir_id, url_type=int(url_encrypt),
-            expired_type=int(_expired_type), password=passcode)
+            url.strip(),
+            folder_id=to_dir_id,
+            url_type=int(url_encrypt),
+            expired_type=int(_expired_type),
+            password=passcode
+        )
 
-        return jsonify({'share_links': share_links}), 200  # 返回分享链接
+        # 构建返回的数据格式
+        response_data = [
+            {
+                'title': title,  # 使用提供的标题
+                'share_url': link['message']  # 获取分享链接
+            }
+            for link in share_links if link['status'] == 'success'
+        ]
+
+        return jsonify({
+            'code': 200,
+            'message': 'ok',
+            'data': response_data
+        }), 200  # 返回分享链接
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'code': 500, 'message': str(e), 'data': []}), 500
+
+
+@app.route('/reset_login', methods=['POST'])
+def reset_login():
+    """
+    重置login-cookies
+    ---
+      parameters:
+        - in: "body"
+          name: "body"
+          description: "Parameters for resetting login"
+          required: true
+          schema:
+            type: "object"
+            properties:
+              cookies:
+                type: "string"
+                example: "new_cookie_value"
+                description: "New cookies value"
+              folder_id:
+                type: "string"
+                example: "123"
+                description: "New folder ID"
+              pdir_id:
+                type: "string"
+                example: "456"
+                description: "New parent directory ID"
+      responses:
+        200:
+          description: "Parameters reset successfully"
+          schema:
+            type: "object"
+            properties:
+              code:
+                type: "integer"
+                example: 200
+              message:
+                type: "string"
+                example: "参数重置成功"
+              data:
+                type: "object"
+                properties:
+                  cookies:
+                    type: "string"
+                    example: "new_cookie_value"
+                  folder_id:
+                    type: "string"
+                    example: "123"
+                  pdir_id:
+                    type: "string"
+                    example: "456"
+        400:
+          description: "Invalid input"
+        """
+
+    data = request.json
+    cookies = data.get('cookies', '')
+    folder_id = data.get('folder_id', '0')
+    pdir_id = data.get('pdir_id', '0')
+
+    # 调用重置方法
+    quark_file_manager.reset_cookies(cookies=cookies, folder_id=folder_id, pdir_id=pdir_id)
+
+    return jsonify({
+        'code': 200,
+        'message': '参数重置成功',
+        'data': {
+            'cookies': quark_file_manager.cookies,
+            'folder_id': quark_file_manager.folder_id,
+            'pdir_id': quark_file_manager.pdir_id,
+        }
+    }), 200
 
 
 if __name__ == '__main__':
