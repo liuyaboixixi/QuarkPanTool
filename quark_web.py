@@ -1,4 +1,6 @@
 import asyncio
+import sys
+
 from flask import Flask, request, jsonify
 from flasgger import Swagger
 from quark import QuarkPanFileManager
@@ -296,4 +298,5 @@ def reset_login():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 50081  # 默认端口为5000
+    app.run(host='0.0.0.0', port=port)
