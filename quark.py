@@ -502,34 +502,54 @@ class QuarkPanFileManager:
 
     async def get_share_task_id(self, fid: str, file_name: str, url_type: int = 1, expired_type: int = 2,
                                 password: str = '') -> str:
+        """
+        异步获取分享任务ID。
 
+        该方法用于发起网络请求以获取分享任务ID。它允许用户指定文件ID、文件名、URL类型、过期类型和密码。
+        根据不同的URL类型，可能需要提供密码，或者自动生成密码。
+
+        参数:
+        - fid: 文件ID，用于标识特定的文件。
+        - file_name: 文件名，用于设置分享的标题。
+        - url_type: URL类型，默认为1。如果设置为2，需要提供密码或自动生成密码。
+        - expired_type: 过期类型，默认为2。
+        - password: 密码，默认为空。如果URL类型为2且未提供密码，将自动生成密码。
+
+        返回:
+        - str: 分享任务ID，用于跟踪分享任务的状态。
+        """
+
+        # 准备请求数据
         json_data = {
-            "fid_list": [
-                fid
-            ],
+            "fid_list": [fid],
             "title": file_name,
-
             "url_type": url_type,
             "expired_type": expired_type
         }
+
+        # 如果URL类型为2，需要添加密码
         if url_type == 2:
             if password:
                 json_data["passcode"] = password
             else:
                 json_data["passcode"] = generate_random_code()
 
+        # 准备请求参数
         params = {
             'pr': 'ucpro',
             'fr': 'pc',
             'uc_param_str': '',
         }
 
+        # 发起网络请求
         async with httpx.AsyncClient() as client:
             timeout = httpx.Timeout(60.0, connect=60.0)
             response = await client.post('https://drive-pc.quark.cn/1/clouddrive/share', params=params,
                                          json=json_data, headers=self.headers, timeout=timeout)
-            json_data = response.json()
-            return json_data['data']['task_id']
+
+        # 解析响应数据并返回任务ID
+        json_data = response.json()
+        return json_data['data']['task_id']
 
     async def get_share_id(self, task_id: str) -> str:
         params = {
