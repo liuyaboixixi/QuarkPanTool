@@ -304,6 +304,74 @@ class QuarkPanFileManager:
                 await self.submit_task(task_id)
             print()
 
+    # 异步执行给定的文件或文件夹的转存或下载操作
+    async def savefile(self, surl: str, folder_id: Union[str, None] = None, download: bool = False) -> None:
+        # 设置保存文件或文件夹的目录ID
+        self.folder_id = folder_id
+        # 打印文件分享链接
+        custom_print(f'文件分享链接：{surl}')
+        # 从分享链接中获取密码ID
+        pwd_id = self.get_pwd_id(surl)
+        # 根据密码ID获取分享令牌
+        stoken = await self.get_stoken(pwd_id)
+        # 如果获取的分享令牌为空，则直接返回
+        if not stoken:
+            return
+        # 获取分享详情，包括是否为分享者本人和数据列表
+        is_owner, data_list = await self.get_detail(pwd_id, stoken)
+        # 初始化文件和文件夹的计数器及列表
+        files_count = 0
+        folders_count = 0
+        files_list: List[str] = []
+        folders_list: List[str] = []
+        files_id_list = []
+        file_fid_list = []
+
+        # 如果数据列表不为空，则进行遍历处理
+        if data_list:
+            total_files_count = len(data_list)
+            for data in data_list:
+                # 判断当前项是否为目录，是则增加文件夹计数并添加到文件夹列表，否则增加文件计数并添加到文件列表
+                if data['dir']:
+                    folders_count += 1
+                    folders_list.append(data["file_name"])
+                else:
+                    files_count += 1
+                    files_list.append(data["file_name"])
+                    files_id_list.append((data["fid"], data["file_name"]))
+
+            # 打印转存总数、文件数、文件夹数以及支持嵌套的信息
+            custom_print(f'转存总数：{total_files_count}，文件数：{files_count}，文件夹数：{folders_count} | 支持嵌套')
+            # 打印文件和文件夹的转存列表
+            custom_print(f'文件转存列表：{files_list}')
+            custom_print(f'文件夹转存列表：{folders_list}')
+
+            # 提取所有项目的fid和share_fid_token，用于后续操作
+            fid_list = [i["fid"] for i in data_list]
+            share_fid_token_list = [i["share_fid_token"] for i in data_list]
+
+            # 如果保存目录ID不合法，则打印提示信息并返回
+            if not self.folder_id:
+                custom_print('保存目录ID不合法，请重新获取，如果无法获取，请输入0作为文件夹ID')
+                return
+
+            # 如果是分享者本人，则打印提示信息并返回
+            if is_owner == 1:
+                custom_print(f'网盘中已经存在该文件，无需再次转存')
+                return
+                # 获取分享保存任务ID，并提交任务
+            try:
+                task_id = await self.get_share_save_task_id(pwd_id, stoken, fid_list, share_fid_token_list,
+                                                        to_pdir_fid=self.folder_id)
+                # 提交任务
+                result = await self.submit_saveTask(task_id)
+                custom_print(f"Task submitted successfully: {task_id}")
+                return result
+            except Exception as e:
+                custom_print(f"Error submitting task {task_id}: {e}")
+                # 根据需求决定是否重新抛出异常
+                raise RuntimeError("给定的文件或文件夹的转存失败") from e
+
     async def get_share_save_task_id(self, pwd_id: str, stoken: str, first_ids: List[str], share_fid_tokens: List[str],
                                      to_pdir_fid: str = '0') -> str:
         task_url = "https://drive.quark.cn/1/clouddrive/share/sharepage/save"
@@ -411,6 +479,47 @@ class QuarkPanFileManager:
                 input(f'[{get_datetime()}] 已退出程序')
                 sys.exit()
 
+    async def submit_saveTask(self, task_id: str, retry: int = 50) -> Union[
+        bool, Dict[str, Union[str, Dict[str, Union[int, str]]]]]:
+
+        for i in range(retry):
+            # Random delay between 100-500 milliseconds
+            await asyncio.sleep(random.randint(500, 1000) / 1000)
+            custom_print(f'Attempt {i + 1} to submit task')
+
+            submit_url = (f"https://drive-pc.quark.cn/1/clouddrive/task?pr=ucpro&fr=pc&uc_param_str=&task_id={task_id}"
+                          f"&retry_index={i}&__dt=21192&__t={get_timestamp(13)}")
+
+            async with httpx.AsyncClient() as client:
+                timeout = httpx.Timeout(60.0, connect=60.0)
+                response = await client.get(submit_url, headers=self.headers, timeout=timeout)
+                json_data = response.json()
+
+            if json_data['message'] == 'ok':
+                task_data = json_data.get('data', {})
+                if task_data.get('status') == 2:
+                    folder_name = task_data.get('save_as', {}).get('to_pdir_name', 'Root Directory')
+
+                    if task_data.get('task_title') == '分享-转存':
+                        custom_print(f"Task ID {task_id} completed")
+                        custom_print(f'File saved in folder: {folder_name}')
+
+                    return task_data.get('save_as')
+
+            else:
+                if json_data['code'] == 32003 and 'capacity limit' in json_data['message']:
+                    custom_print("Transfer failed: Insufficient cloud drive space! "
+                                 "Please check the number of successfully saved items to avoid duplicates.",
+                                 error_msg=True)
+                    return {'error': 'insufficient_space', 'message': json_data['message']}
+
+                elif json_data['code'] == 41013:
+                    custom_print(f"Folder \"{to_dir_name}\" does not exist. Please switch to save directory and retry.",
+                                 error_msg=True)
+                else:
+                    custom_print(f"Error message: {json_data['message']}", error_msg=True)
+
+        return False  # In case all retries are exhausted
     def init_config(self, _user, _pdir_id, _dir_name):
         try:
             os.makedirs('share', exist_ok=True)
@@ -429,6 +538,7 @@ class QuarkPanFileManager:
             new_config = {'user': self.user, 'pdir_id': self.pdir_id, 'dir_name': self.dir_name}
             save_config(f'{CONFIG_DIR}/config.json', content=json.dumps(new_config, ensure_ascii=False))
         return _user, _pdir_id, _dir_name
+
     def reset_cookies(self, cookies: str = '', folder_id: str = '0', pdir_id: str = '0') -> None:
         if cookies:
             self.cookies = cookies
@@ -437,6 +547,7 @@ class QuarkPanFileManager:
             self.folder_id = folder_id
         if pdir_id:
             self.pdir_id = pdir_id
+
     async def load_folder_id(self, renew=False) -> Union[tuple, None]:
         """
         加载或更新用户网盘保存目录的ID和名称。
@@ -745,8 +856,6 @@ class QuarkPanFileManager:
             share_results.append({'data': share_url_dir, 'status': 'error', 'message': str(e)})
 
         return share_results  # 返回所有分享结果
-
-
 
 
 def load_url_file(fpath: str) -> List[str]:
