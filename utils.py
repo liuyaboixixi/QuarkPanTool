@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 import shutil
@@ -20,9 +21,9 @@ def get_datetime(timestamp: Union[int, float, None] = None, fmt: str = "%Y-%m-%d
 
 def custom_print(message, error_msg=False) -> None:
     if error_msg:
-        print(Fore.RED + f'[{get_datetime()}] {message}' + Style.RESET_ALL)
+        logging.info(Fore.RED + f'[{get_datetime()}] {message}' + Style.RESET_ALL)
     else:
-        print(f'[{get_datetime()}] {message}')
+        logging.error(f'[{get_datetime()}] {message}')
 
 
 def get_timestamp(length: int) -> int:
