@@ -77,7 +77,7 @@ async def save_files():
     for index, url in enumerate(urls):
         try:
             print(f"正在转存第{index + 1}个")
-            result = await quark_file_manager.savefile(url.strip(), folder_id)  # 使用提供的目录 ID
+            result = await quark_file_manager.savefile(url.strip(), folder_id.strip())  # 使用提供的目录 ID
             responses.append({'url': url, 'status': 'success', 'message': result})
         except Exception as e:
             responses.append({'url': url, 'status': 'error', 'message': str(e)})
