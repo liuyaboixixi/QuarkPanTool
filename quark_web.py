@@ -84,6 +84,7 @@ async def save_files():
 
     return jsonify(responses), 200
 
+
 @app.route('/save_one_files', methods=['POST'])
 async def save_one_files():
     """
@@ -95,14 +96,22 @@ async def save_one_files():
         type: object
         required: true
         properties:
-          urls:
+          fid_list:
             type: array
             items:
               type: string
-            description: 夸克文件分享链接列表
+            description: 夸克文件分享链接列表fid_id
+          fid_token_list:
+            type: array
+            items:
+              type: string
+            description: 夸克文件分享链接列表fid_token  要保存文件token
+          pwd_id:
+            type: string
+            description: 要保存的自己目录 ID
           folder_id:
             type: string
-            description: 要保存的目录 ID
+            description: 要保存的自己目录 ID
           stoken:
             type: string
             description: stoken
@@ -134,23 +143,23 @@ async def save_one_files():
     """
     # 获取请求参数
     data = request.json
-    urls = data.get('urls', [])
+    pwd_id = data.get('pwd_id', None)
+    fid_list = data.get('fid_list', [])
+    fid_token_list = data.get('fid_token_list', [])
     folder_id = data.get('folder_id', None)
     stoken = data.get('stoken', None)
 
-    if not urls:
+    if not pwd_id:
         return jsonify({'error': '分享地址为空！请先输入分享地址'}), 400
 
-    custom_print(f"\r检测到分享链接中有{len(urls)}条，目标目录 ID: {folder_id}")
     responses = []
 
-    for index, url in enumerate(urls):
-        try:
-            print(f"正在转存第{index + 1}个")
-            result = await quark_file_manager.saveOnefile(url.strip(), stoken.strip(), folder_id.strip())  # 使用提供的目录 ID
-            responses.append({'url': url, 'status': 'success', 'message': result})
-        except Exception as e:
-            responses.append({'url': url, 'status': 'error', 'message': str(e)})
+    try:
+        result = await quark_file_manager.saveOnefile(pwd_id.strip(), fid_list, fid_token_list,
+                                                      stoken.strip(), folder_id.strip())  # 使用提供的目录 ID
+        responses.append({'url': data, 'status': 'success', 'message': result})
+    except Exception as e:
+        responses.append({'url': "报错了啊", 'status': 'error', 'message': str(e)})
 
     return jsonify(responses), 200
 

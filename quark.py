@@ -50,7 +50,7 @@ class QuarkPanFileManager:
     @staticmethod
     def get_pwd_id(share_url: str) -> str:
         # // share_url包含？
-        if "?" in share_url:
+        if "/s/" in share_url:
             share_url = share_url.split('?')[0].split('/s/')[1]
         return share_url
 
@@ -365,7 +365,7 @@ class QuarkPanFileManager:
                 # 获取分享保存任务ID，并提交任务
             try:
                 task_id = await self.get_share_save_task_id(pwd_id, stoken, fid_list, share_fid_token_list,
-                                                        to_pdir_fid=self.folder_id)
+                                                            to_pdir_fid=self.folder_id)
                 # 提交任务
                 result = await self.submit_saveTask(task_id)
                 custom_print(f"Task submitted successfully: {task_id}")
@@ -375,73 +375,56 @@ class QuarkPanFileManager:
                 # 根据需求决定是否重新抛出异常
                 raise RuntimeError("给定的文件或文件夹的转存失败") from e
 
-
     # 异步执行给定的文件或文件夹的转存或下载操作
-    async def saveOnefile(self, surl: str,stoken: str, folder_id: Union[str, None] = None, download: bool = False) -> None:
+    async def saveOnefile(self, pwd_id: str, fid_list: str, fid_token_list: str, stoken: str,
+                          folder_id: Union[str, None] = None,
+                          download: bool = False) -> None:
+        """
+        异步保存单个文件或文件夹。
+
+        根据提供的密码ID、文件ID列表、文件令牌列表和分享令牌，尝试将文件保存到指定的文件夹ID。
+        如果保存成功且需要下载文件，则保存后会进行下载。
+
+        :param pwd_id: 密码ID，用于获取分享令牌。
+        :param fid_list: 文件或文件夹的ID列表，以字符串形式提供。
+        :param fid_token_list: 与文件或文件夹ID对应的令牌列表，以字符串形式提供。
+        :param stoken: 分享令牌，用于验证和操作分享的文件。
+        :param folder_id: 目标文件夹的ID，用于指定保存位置。如果为None，则需要在函数内部进行设置。
+        :param download: 保存后是否下载文件，默认为False。
+        :return: 无返回值。
+        """
         # 设置保存文件或文件夹的目录ID
         self.folder_id = folder_id
         # 打印文件分享链接
-        custom_print(f'文件分享链接：{surl}')
+        custom_print(f'文件分享链接：{pwd_id}')
         # 从分享链接中获取密码ID
-        pwd_id = self.get_pwd_id(surl)
+        pwd_id = self.get_pwd_id(pwd_id)
         # 根据密码ID获取分享令牌
         stoken = stoken
         # 如果获取的分享令牌为空，则直接返回
         if not stoken:
             return
-        # 获取分享详情，包括是否为分享者本人和数据列表
-        is_owner, data_list = await self.get_detail(pwd_id, stoken)
-        # 初始化文件和文件夹的计数器及列表
-        files_count = 0
-        folders_count = 0
-        files_list: List[str] = []
-        folders_list: List[str] = []
-        files_id_list = []
 
-        # 如果数据列表不为空，则进行遍历处理
-        if data_list:
-            total_files_count = len(data_list)
-            for data in data_list:
-                # 判断当前项是否为目录，是则增加文件夹计数并添加到文件夹列表，否则增加文件计数并添加到文件列表
-                if data['dir']:
-                    folders_count += 1
-                    folders_list.append(data["file_name"])
-                else:
-                    files_count += 1
-                    files_list.append(data["file_name"])
-                    files_id_list.append((data["fid"], data["file_name"]))
+        # 提取所有项目的fid和share_fid_token，用于后续操作
+        fid_list = fid_list
+        share_fid_token_list = fid_token_list
 
-            # 打印转存总数、文件数、文件夹数以及支持嵌套的信息
-            custom_print(f'转存总数：{total_files_count}，文件数：{files_count}，文件夹数：{folders_count} | 支持嵌套')
-            # 打印文件和文件夹的转存列表
-            custom_print(f'文件转存列表：{files_list}')
-            custom_print(f'文件夹转存列表：{folders_list}')
-
-            # 提取所有项目的fid和share_fid_token，用于后续操作
-            fid_list = [i["fid"] for i in data_list]
-            share_fid_token_list = [i["share_fid_token"] for i in data_list]
-
-            # 如果保存目录ID不合法，则打印提示信息并返回
-            if not self.folder_id:
-                custom_print('保存目录ID不合法，请重新获取，如果无法获取，请输入0作为文件夹ID')
-                return
-
-            # 如果是分享者本人，则打印提示信息并返回
-            if is_owner == 1:
-                custom_print(f'网盘中已经存在该文件，无需再次转存')
-                return
-                # 获取分享保存任务ID，并提交任务
-            try:
-                task_id = await self.get_share_save_task_id(pwd_id, stoken, fid_list, share_fid_token_list,
-                                                        to_pdir_fid=self.folder_id)
-                # 提交任务
-                result = await self.submit_saveTask(task_id)
-                custom_print(f"Task submitted successfully: {task_id}")
-                return result
-            except Exception as e:
-                custom_print(f"Error submitting task {task_id}: {e}")
-                # 根据需求决定是否重新抛出异常
-                raise RuntimeError("给定的文件或文件夹的转存失败") from e
+        # 如果保存目录ID不合法，则打印提示信息并返回
+        if not self.folder_id:
+            custom_print('保存目录ID不合法，请重新获取，如果无法获取，请输入0作为文件夹ID')
+            return
+        to_pdir_fid = self.folder_id
+        # 获取分享保存任务ID，并提交任务
+        try:
+            task_id = await self.get_share_save_task_id(pwd_id, stoken, fid_list, share_fid_token_list, to_pdir_fid)
+            # 提交任务
+            result = await self.submit_saveTask(task_id)
+            custom_print(f"Task submitted successfully: {task_id}")
+            return result
+        except Exception as e:
+            custom_print(f"Error submitting task {task_id}: {e}")
+            # 根据需求决定是否重新抛出异常
+            raise RuntimeError("给定的文件或文件夹的转存失败") from e
 
 
     async def get_share_save_task_id(self, pwd_id: str, stoken: str, first_ids: List[str], share_fid_tokens: List[str],
