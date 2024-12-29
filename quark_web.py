@@ -84,6 +84,76 @@ async def save_files():
 
     return jsonify(responses), 200
 
+@app.route('/save_one_files', methods=['POST'])
+async def save_one_files():
+    """
+    保存夸克文件的接口
+    ---
+    parameters:
+      - name: urls
+        in: body
+        type: object
+        required: true
+        properties:
+          urls:
+            type: array
+            items:
+              type: string
+            description: 夸克文件分享链接列表
+          folder_id:
+            type: string
+            description: 要保存的目录 ID
+          stoken:
+            type: string
+            description: stoken
+    responses:
+      200:
+        description: 保存成功
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+                description: 分享链接
+              status:
+                type: string
+                description: 状态（成功或错误）
+              message:
+                type: string
+                description: 消息
+      400:
+        description: 请求参数错误
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              description: 错误信息
+    """
+    # 获取请求参数
+    data = request.json
+    urls = data.get('urls', [])
+    folder_id = data.get('folder_id', None)
+    stoken = data.get('stoken', None)
+
+    if not urls:
+        return jsonify({'error': '分享地址为空！请先输入分享地址'}), 400
+
+    custom_print(f"\r检测到分享链接中有{len(urls)}条，目标目录 ID: {folder_id}")
+    responses = []
+
+    for index, url in enumerate(urls):
+        try:
+            print(f"正在转存第{index + 1}个")
+            result = await quark_file_manager.saveOnefile(url.strip(), stoken.strip(), folder_id.strip())  # 使用提供的目录 ID
+            responses.append({'url': url, 'status': 'success', 'message': result})
+        except Exception as e:
+            responses.append({'url': url, 'status': 'error', 'message': str(e)})
+
+    return jsonify(responses), 200
+
 
 @app.route('/share_file', methods=['POST'])
 async def share_file():
